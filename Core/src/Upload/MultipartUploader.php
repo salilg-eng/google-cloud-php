@@ -58,15 +58,25 @@ class MultipartUploader extends AbstractUploader
      */
     public function uploadAsync()
     {
+        $request = $this->prepareRequest();
+        $stream = $request->getBody();
+
         return $this->requestWrapper->sendAsync(
-            $this->prepareRequest(),
+            $request,
             $this->requestOptions
-        )->then(function (ResponseInterface $response) {
-            return $this->jsonDecode(
-                $response->getBody(),
-                true
-            );
-        });
+        )->then(
+            function (ResponseInterface $response) use ($stream) {
+                $stream->close();
+                return $this->jsonDecode(
+                    $response->getBody(),
+                    true
+                );
+            },
+            function (\Exception $e) use ($stream) {
+                $stream->close();
+                throw $e;
+            }
+        );
     }
 
     /**

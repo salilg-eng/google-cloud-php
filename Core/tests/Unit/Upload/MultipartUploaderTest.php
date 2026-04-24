@@ -172,4 +172,36 @@ class MultipartUploaderTest extends TestCase
 
         return $stream->reveal();
     }
+    
+    public function testUploadAsyncClosesStream()
+    {
+        $requestWrapper = $this->prophesize(RequestWrapper::class);
+        $stream = $this->prophesize(Psr7\Stream::class);
+        $stream->isReadable()->willReturn(true);
+        $stream->isSeekable()->willReturn(true);
+        $stream->getSize()->willReturn(4);
+        $stream->read(Argument::any())->willReturn('abcd');
+        $stream->eof()->willReturn(false, true);
+        $stream->getMetadata('uri')->willReturn(null);
+        
+        $stream->close()->shouldBeCalled();
+
+        $successBody = '{"canI":"kickIt"}';
+        $response = new Response(200, [], $successBody);
+        $promise = Create::promiseFor($response);
+
+        $requestWrapper->sendAsync(
+            Argument::type(RequestInterface::class),
+            Argument::type('array')
+        )->willReturn($promise);
+
+        $uploader = new MultipartUploader(
+            $requestWrapper->reveal(),
+            $stream->reveal(),
+            'http://www.example.com'
+        );
+
+        $actualPromise = $uploader->uploadAsync();
+        $actualPromise->wait();
+    }
 }
