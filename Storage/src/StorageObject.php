@@ -231,18 +231,7 @@ class StorageObject
      *           This is the retention configuration set for this object.
      *     @type string $retention.mode The mode of the retention configuration,
      *           which can be either `"Unlocked"` or `"Locked"`.
-     *     @type array $contexts User-defined or system-defined object contexts.
-     *           Each object context is a key-payload pair, where the key provides the
-     *           identification and the payload holds the associated value and additional metadata.
-     *     @type array $contexts.custom Custom user-defined contexts. Keys must start
-     *           with an alphanumeric character and cannot contain double quotes (`"`).
-     *     @type string $contexts.custom.{key}.value The value associated with the context.
-     *           If not empty, must start with an alphanumeric character and cannot contain double quotes (`"`)
-     *           or forward slashes (`/`).
-     *     @type string $contexts.custom.{key}.createTime The time the context
-     *           was created in RFC 3339 format. **(read only)**
-     *     @type string $contexts.custom.{key}.updateTime The time the context
-     *           was last updated in RFC 3339 format. **(read only)**
+     *     @type array $contexts Object contexts. See the [API docs](https://docs.cloud.google.com/storage/docs/use-object-contexts) for more details.
      *     @type bool $overrideUnlockedRetention Applicable for objects that
      *           have an unlocked retention configuration. Required to be set to
      *           `true` if the operation includes a retention property that
