@@ -309,6 +309,31 @@ class Rest implements ConnectionInterface
     /**
      * @param array $args
      */
+    public function headObject(array $args = [])
+    {
+        $args += [
+            'prettyPrint' => false,
+        ];
+        $requestOptions = $this->pluckArray([
+            'restOptions',
+            'retries',
+            'retryHeaders',
+            'requestTimeout',
+            'restRetryFunction',
+            'restRetryListener',
+            'restDelayFunction',
+            'restCalcDelayFunction',
+        ], $args);
+
+        $request = $this->requestBuilder->build('objects', 'get', $args);
+        $request = $request->withMethod('HEAD');
+
+        return $this->requestWrapper->send($request, $requestOptions);
+    }
+
+    /**
+     * @param array $args
+     */
     public function listObjects(array $args = [])
     {
         return $this->send('objects', 'list', $args);

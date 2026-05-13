@@ -133,6 +133,11 @@ interface ConnectionInterface
     /**
      * @param array $args
      */
+    public function headObject(array $args = []);
+
+    /**
+     * @param array $args
+     */
     public function listObjects(array $args = []);
 
     /**
