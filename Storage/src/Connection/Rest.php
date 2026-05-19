@@ -308,12 +308,29 @@ class Rest implements ConnectionInterface
 
     /**
      * @param array $args
+     * @return array
      */
     public function headObject(array $args = [])
     {
         $args += [
             'prettyPrint' => false,
         ];
+
+        $args['restRetryFunction'] = $this->restRetryFunction ?? $this->getRestRetryFunction(
+            'objects',
+            'get',
+            $args
+        );
+
+        $args += array_filter([
+            'retryStrategy' => $this->retryStrategy,
+            'restDelayFunction' => $this->restDelayFunction,
+            'restCalcDelayFunction' => $this->restCalcDelayFunction,
+            'restRetryListener' => $this->restRetryListener,
+        ]);
+
+        $args = $this->addRetryHeaderLogic($args);
+
         $requestOptions = $this->pluckArray([
             'restOptions',
             'retries',
