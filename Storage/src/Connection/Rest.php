@@ -28,6 +28,7 @@ use Google\Cloud\Core\Upload\ResumableUploader;
 use Google\Cloud\Core\Upload\StreamableUploader;
 use Google\Cloud\Core\UriTrait;
 use Google\Cloud\Storage\StorageClient;
+use Google\Cloud\Storage\HashValidatingStream;
 use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\Psr7\MimeType;
 use GuzzleHttp\Psr7\Request;
@@ -383,16 +384,17 @@ class Rest implements ConnectionInterface
             }
         };
 
-        $fetchedStream = $this->requestWrapper->send(
+        $response = $this->requestWrapper->send(
             $request,
             $requestOptions
-        )->getBody();
+        );
+        $fetchedStream = $response->getBody();
 
         // If no retry attempt was made, then we can return the stream as is.
         // This is important in the case where downloadObject is called to open
         // the file but not to read from it yet.
         if ($attempt === null) {
-            return $fetchedStream;
+            return $this->maybeWrapWithHashValidatingStream($fetchedStream, $args, $response);
         }
 
         // If our object is a transcoded object, then Range headers are not honoured.
@@ -400,13 +402,73 @@ class Rest implements ConnectionInterface
         // that was fetched will contain the complete object. So, we don't need to copy
         // the partial stream, we can just return the stream we fetched.
         if ($transcodedObj) {
-            return $fetchedStream;
+            return $this->maybeWrapWithHashValidatingStream($fetchedStream, $args, $response);
         }
 
         Utils::copyToStream($fetchedStream, $resultStream);
 
         $resultStream->seek(0);
-        return $resultStream;
+        return $this->maybeWrapWithHashValidatingStream($resultStream, $args, $response);
+    }
+
+    /**
+     * Wrap the download stream in a HashValidatingStream if validation is enabled.
+     */
+    private function maybeWrapWithHashValidatingStream(
+        StreamInterface $stream,
+        array $args,
+        ResponseInterface $response
+    ) {
+        $validate = $args['validate'] ?? 'crc32';
+        if ($validate === false || $validate === 'none') {
+            return $stream;
+        }
+
+        // Skip validation if the user requested a subrange of the object
+        $requestedBytes = $this->getRequestedBytes($args);
+        if ($requestedBytes['startByte'] > 0 || $requestedBytes['endByte'] !== '') {
+            return $stream;
+        }
+
+        // Skip validation if the response status is Partial Content (unless it's a library-driven retry)
+        if ($response->getStatusCode() === 206 && !isset($args['retryHeaders'])) {
+            return $stream;
+        }
+
+        $hashHeader = $response->getHeaderLine('X-Goog-Hash');
+        if (!$hashHeader) {
+            return $stream;
+        }
+
+        $hashes = [];
+        $parts = explode(',', $hashHeader);
+        foreach ($parts as $part) {
+            $kv = explode('=', trim($part), 2);
+            if (count($kv) === 2) {
+                $hashes[$kv[0]] = $kv[1];
+            }
+        }
+
+        $options = [];
+        $crc32cSupported = in_array('crc32c', hash_algos());
+
+        if ($validate === 'md5') {
+            if (isset($hashes['md5'])) {
+                $options['expectedMd5'] = $hashes['md5'];
+            }
+        } elseif ($validate === 'crc32' || $validate === 'crc32c' || $validate === true) {
+            if ($crc32cSupported && isset($hashes['crc32c'])) {
+                $options['expectedCrc32c'] = $hashes['crc32c'];
+            } elseif (isset($hashes['md5'])) {
+                $options['expectedMd5'] = $hashes['md5'];
+            }
+        }
+
+        if (empty($options)) {
+            return $stream;
+        }
+
+        return new HashValidatingStream($stream, $options);
     }
 
     /**
@@ -423,8 +485,12 @@ class Rest implements ConnectionInterface
         return $this->requestWrapper->sendAsync(
             $request,
             $requestOptions
-        )->then(function (ResponseInterface $response) {
-            return $response->getBody();
+        )->then(function (ResponseInterface $response) use ($args) {
+            return $this->maybeWrapWithHashValidatingStream(
+                $response->getBody(),
+                $args,
+                $response
+            );
         });
     }
 
