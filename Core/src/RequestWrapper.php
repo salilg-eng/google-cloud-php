@@ -468,7 +468,19 @@ class RequestWrapper
      */
     private function getRequestOptions(array $options)
     {
-        $restOptions = $options['restOptions'] ?? $this->restOptions;
+        $perCallRestOptions = $options['restOptions'] ?? [];
+        
+        $headers = array_merge(
+            $this->restOptions['headers'] ?? [],
+            $perCallRestOptions['headers'] ?? []
+        );
+
+        $restOptions = array_merge($this->restOptions, $perCallRestOptions);
+        
+        if (!empty($headers)) {
+            $restOptions['headers'] = $headers;
+        }
+
         $timeout = $options['requestTimeout'] ?? $this->requestTimeout;
 
         if ($timeout && !array_key_exists('timeout', $restOptions)) {

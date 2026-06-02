@@ -877,6 +877,42 @@ class RequestWrapperTest extends TestCase
         );
     }
 
+
+    public function testMergesGlobalRestOptionsWithPerCallRestOptions()
+    {
+        $expectedBody = 'responseBody';
+        $response = new Response(200, [], $expectedBody);
+
+        $requestWrapper = new RequestWrapper([
+            'accessToken' => 'abc',
+            'restOptions' => [
+                'proxy' => 'http://proxy.example.com:8080',
+                'verify' => false,
+                'headers' => [
+                    'X-Global-Header' => 'global-value'
+                ]
+            ],
+            'httpHandler' => function ($request, $options = []) use ($response) {
+                $this->assertEquals('http://proxy.example.com:8080', $options['proxy']);
+                $this->assertFalse($options['verify']);
+                $this->assertEquals('global-value', $options['headers']['X-Global-Header']);
+                $this->assertEquals('per-call-value', $options['headers']['X-Goog-Hash']);
+                return $response;
+            }
+        ]);
+
+        $requestWrapper->send(
+            new Request('GET', 'http://www.example.com'),
+            [
+                'restOptions' => [
+                    'headers' => [
+                        'X-Goog-Hash' => 'per-call-value'
+                    ]
+                ]
+            ]
+        );
+    }
+
     public function provideCheckUniverseDomainPasses()
     {
         return [
