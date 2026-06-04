@@ -266,6 +266,43 @@ class StorageClientTest extends TestCase
         );
     }
 
+    public function testCreatesBucketWithIpFilter()
+    {
+        $bucketName = 'ip-filter-bucket';
+        $ipFilterConfig = [
+            'mode' => 'Enabled',
+            'publicNetworkSource' => [
+                'allowedIpCidrRanges' => ['1.2.3.4/32']
+            ],
+            'vpcNetworkSources' => [
+                [
+                    'network' => 'projects/p1/global/networks/n1',
+                    'allowedIpCidrRanges' => ['10.0.0.0/24']
+                ]
+            ],
+            'allowCrossOrgVpcs' => true,
+            'allowAllServiceAgentAccess' => false
+        ];
+        $this->connection->projectId()
+            ->willReturn(self::PROJECT);
+        $this->connection
+            ->insertBucket(Argument::allOf(
+                Argument::withEntry('name', $bucketName),
+                Argument::withEntry('project', self::PROJECT),
+                Argument::withEntry('ipFilter', $ipFilterConfig)
+            ))
+            ->willReturn(['name' => $bucketName]);
+        $this->client->___setProperty('connection', $this->connection->reveal());
+
+        $this->assertInstanceOf(
+            Bucket::class,
+            $this->client->createBucket(
+                $bucketName,
+                ['ipFilter' => $ipFilterConfig]
+            )
+        );
+    }
+
     public function testRegisteringStreamWrapper()
     {
         $this->assertTrue($this->client->registerStreamWrapper());
