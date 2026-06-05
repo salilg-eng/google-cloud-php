@@ -1093,15 +1093,15 @@ class Bucket
      *           `inherited`. For more details, see
      *           [Public Access Prevention](https://cloud.google.com/storage/docs/public-access-prevention).
      *     @type array $ipFilter The bucket's IP filter configuration.
-     *           @type string $ipFilter.mode The IP filter mode. Accepted values are 'Enabled' and 'Disabled'.
-     *           @type array $ipFilter.publicNetworkSource Public network configuration.
-     *                 @type array $ipFilter.publicNetworkSource.allowedIpCidrRanges Allowed IP/CIDR ranges.
-     *           @type array $ipFilter.vpcNetworkSources List of private VPC networks configurations.
+     *     @type string $ipFilter.mode The IP filter mode. Accepted values are 'Enabled' and 'Disabled'.
+     *     @type array $ipFilter.publicNetworkSource Public network configuration.
+     *     @type array $ipFilter.publicNetworkSource.allowedIpCidrRanges Allowed IP/CIDR ranges.
+     *     @type array $ipFilter.vpcNetworkSources List of private VPC networks configurations.
      *                 Each element contains:
-     *                 @type string network Fully qualified VPC network URL/name.
-     *                 @type array allowedIpCidrRanges Allowed IP/CIDR ranges.
-     *           @type bool $ipFilter.allowCrossOrgVpcs Set true to allow VPCs outside the org.
-     *           @type bool $ipFilter.allowAllServiceAgentAccess Set true to allow service-to-service agent interactions.
+     *     @type string network Fully qualified VPC network URL/name.
+     *     @type array allowedIpCidrRanges Allowed IP/CIDR ranges.
+     *     @type bool $ipFilter.allowCrossOrgVpcs Set true to allow VPCs outside the org.
+     *     @type bool $ipFilter.allowAllServiceAgentAccess Set true to allow service-to-service agent interactions.
      * }
      * @codingStandardsIgnoreEnd
      * @return array
