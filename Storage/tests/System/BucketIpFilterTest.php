@@ -36,7 +36,7 @@ class BucketIpFilterTest extends StorageTestCase
             ],
             'vpcNetworkSources' => [
                 [
-                    'network' => 'projects/dummy-project/global/networks/dummy-network',
+                    'network' => 'projects/' . self::$client->projectId() . '/global/networks/default',
                     'allowedIpCidrRanges' => ['10.0.0.0/24']
                 ]
             ],
@@ -56,7 +56,7 @@ class BucketIpFilterTest extends StorageTestCase
         $this->assertEquals('Disabled', $info['ipFilter']['mode']);
         $this->assertEquals(['1.2.3.0/24'], $info['ipFilter']['publicNetworkSource']['allowedIpCidrRanges']);
         $this->assertEquals(
-            'projects/dummy-project/global/networks/dummy-network',
+            'projects/' . self::$client->projectId() . '/global/networks/default',
             $info['ipFilter']['vpcNetworkSources'][0]['network']
         );
         $this->assertEquals(['10.0.0.0/24'], $info['ipFilter']['vpcNetworkSources'][0]['allowedIpCidrRanges']);
