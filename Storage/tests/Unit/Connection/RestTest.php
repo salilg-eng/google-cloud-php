@@ -543,11 +543,18 @@ class RestTest extends TestCase
             $expectedUri,
             $actualUri1
         );
+        $this->assertArrayHasKey('x-goog-gcs-idempotency-token', $requestHeaders[0]);
+        $token1 = $requestHeaders[0]['x-goog-gcs-idempotency-token'];
+        unset($requestHeaders[0]['x-goog-gcs-idempotency-token']);
         $this->assertEquals([], $requestHeaders[0]);
         $this->assertEquals(
             $expectedUri,
             $actualUri2
         );
+        $this->assertArrayHasKey('x-goog-gcs-idempotency-token', $requestHeaders[1]);
+        $token2 = $requestHeaders[1]['x-goog-gcs-idempotency-token'];
+        $this->assertEquals($token1, $token2);
+        unset($requestHeaders[1]['x-goog-gcs-idempotency-token']);
         $this->assertEquals($expectedSecondRequestHeaders, $requestHeaders[1]);
         $this->assertEquals($expectedResult, $actualBody);
     }
@@ -1028,6 +1035,56 @@ class RestTest extends TestCase
             [2],
             [3],
         ];
+    }
+
+    public function testIdempotencyTokenHeaderAdded()
+    {
+        $response = new Response(200, [], '{}');
+
+        $this->requestWrapper->send(
+            Argument::type(RequestInterface::class),
+            Argument::type('array')
+        )->willReturn($response);
+
+        $rest = new Rest();
+        $rest->setRequestWrapper($this->requestWrapper->reveal());
+
+        $rest->listBuckets();
+
+        $this->requestWrapper->send(Argument::type(RequestInterface::class), Argument::that(function ($options) {
+            if (!isset($options['restOptions']['headers']['x-goog-gcs-idempotency-token'])) {
+                return false;
+            }
+            $token = $options['restOptions']['headers']['x-goog-gcs-idempotency-token'];
+            return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $token) === 1;
+        }))->shouldHaveBeenCalled();
+    }
+
+    public function testIdempotencyTokenNotOverwrittenIfProvided()
+    {
+        $response = new Response(200, [], '{}');
+
+        $this->requestWrapper->send(
+            Argument::type(RequestInterface::class),
+            Argument::type('array')
+        )->willReturn($response);
+
+        $rest = new Rest();
+        $rest->setRequestWrapper($this->requestWrapper->reveal());
+
+        $customToken = 'my-custom-uuid-1234';
+        $rest->listBuckets([
+            'restOptions' => [
+                'headers' => [
+                    'x-goog-gcs-idempotency-token' => $customToken
+                ]
+            ]
+        ]);
+
+        $this->requestWrapper->send(Argument::type(RequestInterface::class), Argument::that(function ($options) use ($customToken) {
+            return isset($options['restOptions']['headers']['x-goog-gcs-idempotency-token']) 
+                && $options['restOptions']['headers']['x-goog-gcs-idempotency-token'] === $customToken;
+        }))->shouldHaveBeenCalled();
     }
 
     private function getContentTypeAndMetadata(RequestInterface $request)

@@ -433,6 +433,8 @@ class Rest implements ConnectionInterface
             }
         };
 
+        $requestOptions = $this->addIdempotencyTokenHeaderLogic($requestOptions);
+
         $response = $this->requestWrapper->send(
             $request,
             $requestOptions
@@ -566,6 +568,8 @@ class Rest implements ConnectionInterface
             }
         };
 
+        $requestOptions = $this->addIdempotencyTokenHeaderLogic($requestOptions);
+
         return $this->requestWrapper->sendAsync(
             $request,
             $requestOptions
@@ -614,6 +618,8 @@ class Rest implements ConnectionInterface
                 $uriParams['query'][$precondition] = $args[$precondition];
             }
         }
+
+        $args = $this->addIdempotencyTokenHeaderLogic($args);
 
         return new $uploaderClass(
             $this->requestWrapper,
@@ -1034,8 +1040,29 @@ class Rest implements ConnectionInterface
         ]);
 
         $options = $this->addRetryHeaderLogic($options);
+        $options = $this->addIdempotencyTokenHeaderLogic($options);
 
         return $this->traitSend($resource, $method, $options);
+    }
+
+    /**
+     * Adds the idempotency token header to the request options.
+     * @param array $options
+     * @return array
+     */
+    private function addIdempotencyTokenHeaderLogic(array $options)
+    {
+        if (!isset($options['restOptions'])) {
+            $options['restOptions'] = [];
+        }
+        if (!isset($options['restOptions']['headers'])) {
+            $options['restOptions']['headers'] = [];
+        }
+        if (!isset($options['restOptions']['headers']['x-goog-gcs-idempotency-token'])) {
+            $options['restOptions']['headers']['x-goog-gcs-idempotency-token'] = Uuid::uuid4()->toString();
+        }
+
+        return $options;
     }
 
     /**
