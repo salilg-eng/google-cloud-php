@@ -59,7 +59,9 @@ class StorageRequestWrapper extends RequestWrapper
      */
     private function addToken(RequestInterface $request, array $options)
     {
-        if (!isset($options['restOptions']['headers']['x-goog-gcs-idempotency-token']) && !$request->hasHeader('x-goog-gcs-idempotency-token')) {
+        if (!isset($options['restOptions']['headers']['x-goog-gcs-idempotency-token'])
+            && !$request->hasHeader('x-goog-gcs-idempotency-token')
+        ) {
             $token = Uuid::uuid4()->toString();
             if (isset($options['retryHeaders'])) {
                 foreach ($options['retryHeaders'] as $header) {
