@@ -141,7 +141,7 @@ class Rest implements ConnectionInterface
 
         $this->apiEndpoint = $this->getApiEndpoint(null, $config, self::DEFAULT_API_ENDPOINT_TEMPLATE);
 
-        $this->setRequestWrapper(new RequestWrapper($config));
+        $this->setRequestWrapper(new StorageRequestWrapper($config));
         $this->setRequestBuilder(new RequestBuilder(
             $config['serviceDefinitionPath'],
             $this->apiEndpoint
@@ -426,14 +426,16 @@ class Rest implements ConnectionInterface
 
                 // modify the range headers to fetch the remaining data
                 $arguments[1]['headers']['Range'] = sprintf('bytes=%s-%s', $startByte, $endByte);
-                $arguments[0] = $this->modifyRequestForRetry($arguments[0], $retryAttempt, $invocationId);
+                $newInvocationId = \Ramsey\Uuid\Uuid::uuid4()->toString();
+                $arguments[1]['headers']['x-goog-gcs-idempotency-token'] = $newInvocationId;
+                $arguments[0] = $this->modifyRequestForRetry($arguments[0], $retryAttempt, $newInvocationId);
 
                 // Copy the final result to the end of the stream
                 $attempt = $retryAttempt;
             }
         };
 
-        $requestOptions = $this->addIdempotencyTokenHeaderLogic($requestOptions);
+        
 
         $response = $this->requestWrapper->send(
             $request,
@@ -568,7 +570,7 @@ class Rest implements ConnectionInterface
             }
         };
 
-        $requestOptions = $this->addIdempotencyTokenHeaderLogic($requestOptions);
+        
 
         return $this->requestWrapper->sendAsync(
             $request,
@@ -612,14 +614,14 @@ class Rest implements ConnectionInterface
 
         // Passing the preconditions we want to extract out of arguments
         // into our query params.
-        $preconditions = self::$condIdempotentOps['objects.insert'];
+        $preconditions = ['ifGenerationMatch', 'ifGenerationNotMatch'];
         foreach ($preconditions as $precondition) {
             if (isset($args[$precondition])) {
                 $uriParams['query'][$precondition] = $args[$precondition];
             }
         }
 
-        $args = $this->addIdempotencyTokenHeaderLogic($args);
+        
 
         return new $uploaderClass(
             $this->requestWrapper,
@@ -1040,29 +1042,9 @@ class Rest implements ConnectionInterface
         ]);
 
         $options = $this->addRetryHeaderLogic($options);
-        $options = $this->addIdempotencyTokenHeaderLogic($options);
+        
 
         return $this->traitSend($resource, $method, $options);
-    }
-
-    /**
-     * Adds the idempotency token header to the request options.
-     * @param array $options
-     * @return array
-     */
-    private function addIdempotencyTokenHeaderLogic(array $options)
-    {
-        if (!isset($options['restOptions'])) {
-            $options['restOptions'] = [];
-        }
-        if (!isset($options['restOptions']['headers'])) {
-            $options['restOptions']['headers'] = [];
-        }
-        if (!isset($options['restOptions']['headers']['x-goog-gcs-idempotency-token'])) {
-            $options['restOptions']['headers']['x-goog-gcs-idempotency-token'] = Uuid::uuid4()->toString();
-        }
-
-        return $options;
     }
 
     /**

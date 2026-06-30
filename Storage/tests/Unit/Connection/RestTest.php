@@ -27,6 +27,7 @@ use Google\Cloud\Core\Upload\ResumableUploader;
 use Google\Cloud\Core\Upload\StreamableUploader;
 use Google\Cloud\Storage\Connection\Rest;
 use Google\Cloud\Storage\Connection\RetryTrait;
+use Google\Cloud\Storage\Connection\StorageRequestWrapper;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
 use GuzzleHttp\Promise\Create;
@@ -516,7 +517,7 @@ class RestTest extends TestCase
                 return new Response($status2, [], $body2);
             }
         );
-        $requestWrapper = new RequestWrapper([
+        $requestWrapper = new StorageRequestWrapper([
             'httpHandler' => new Guzzle7HttpHandler($mockClient->reveal()),
             'accessToken' => 'Fake token',
             'retries' => 3,
@@ -553,7 +554,11 @@ class RestTest extends TestCase
         );
         $this->assertArrayHasKey('x-goog-gcs-idempotency-token', $requestHeaders[1]);
         $token2 = $requestHeaders[1]['x-goog-gcs-idempotency-token'];
-        $this->assertEquals($token1, $token2);
+        if ($status1 === 200) {
+            $this->assertNotEquals($token1, $token2);
+        } else {
+            $this->assertEquals($token1, $token2);
+        }
         unset($requestHeaders[1]['x-goog-gcs-idempotency-token']);
         $this->assertEquals($expectedSecondRequestHeaders, $requestHeaders[1]);
         $this->assertEquals($expectedResult, $actualBody);
@@ -1039,40 +1044,48 @@ class RestTest extends TestCase
 
     public function testIdempotencyTokenHeaderAdded()
     {
-        $response = new Response(200, [], '{}');
-
-        $this->requestWrapper->send(
+        $mockClient = $this->prophesize(Client::class);
+        $mockClient->send(
             Argument::type(RequestInterface::class),
-            Argument::type('array')
-        )->willReturn($response);
+            Argument::that(function ($options) {
+                if (!isset($options['headers']['x-goog-gcs-idempotency-token'])) {
+                    return false;
+                }
+                $token = $options['headers']['x-goog-gcs-idempotency-token'];
+                return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $token) === 1;
+            })
+        )->willReturn(new Response(200, [], '{}'))->shouldBeCalled();
 
         $rest = new Rest();
-        $rest->setRequestWrapper($this->requestWrapper->reveal());
+        $rest->setRequestWrapper(new StorageRequestWrapper([
+            'httpHandler' => new Guzzle7HttpHandler($mockClient->reveal()),
+            'accessToken' => 'Fake token',
+        ]));
 
         $rest->listBuckets();
-
-        $this->requestWrapper->send(Argument::type(RequestInterface::class), Argument::that(function ($options) {
-            if (!isset($options['restOptions']['headers']['x-goog-gcs-idempotency-token'])) {
-                return false;
-            }
-            $token = $options['restOptions']['headers']['x-goog-gcs-idempotency-token'];
-            return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $token) === 1;
-        }))->shouldHaveBeenCalled();
     }
 
     public function testIdempotencyTokenNotOverwrittenIfProvided()
     {
-        $response = new Response(200, [], '{}');
-
-        $this->requestWrapper->send(
+        $customToken = 'my-custom-uuid-1234';
+        
+        $mockClient = $this->prophesize(Client::class);
+        $mockClient->send(
             Argument::type(RequestInterface::class),
-            Argument::type('array')
-        )->willReturn($response);
+            Argument::that(function ($options) use ($customToken) {
+                if (!isset($options['headers']['x-goog-gcs-idempotency-token'])) {
+                    return false;
+                }
+                return $options['headers']['x-goog-gcs-idempotency-token'] === $customToken;
+            })
+        )->willReturn(new Response(200, [], '{}'))->shouldBeCalled();
 
         $rest = new Rest();
-        $rest->setRequestWrapper($this->requestWrapper->reveal());
+        $rest->setRequestWrapper(new StorageRequestWrapper([
+            'httpHandler' => new Guzzle7HttpHandler($mockClient->reveal()),
+            'accessToken' => 'Fake token',
+        ]));
 
-        $customToken = 'my-custom-uuid-1234';
         $rest->listBuckets([
             'restOptions' => [
                 'headers' => [
@@ -1080,11 +1093,6 @@ class RestTest extends TestCase
                 ]
             ]
         ]);
-
-        $this->requestWrapper->send(Argument::type(RequestInterface::class), Argument::that(function ($options) use ($customToken) {
-            return isset($options['restOptions']['headers']['x-goog-gcs-idempotency-token']) 
-                && $options['restOptions']['headers']['x-goog-gcs-idempotency-token'] === $customToken;
-        }))->shouldHaveBeenCalled();
     }
 
     private function getContentTypeAndMetadata(RequestInterface $request)
