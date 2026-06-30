@@ -427,6 +427,13 @@ class Rest implements ConnectionInterface
                 // modify the range headers to fetch the remaining data
                 $arguments[1]['headers']['Range'] = sprintf('bytes=%s-%s', $startByte, $endByte);
                 $newInvocationId = \Ramsey\Uuid\Uuid::uuid4()->toString();
+                if (isset($arguments[1]['headers'])) {
+                    foreach (array_keys($arguments[1]['headers']) as $headerName) {
+                        if (strtolower($headerName) === 'x-goog-gcs-idempotency-token') {
+                            unset($arguments[1]['headers'][$headerName]);
+                        }
+                    }
+                }
                 $arguments[1]['headers']['x-goog-gcs-idempotency-token'] = $newInvocationId;
                 $arguments[0] = $this->modifyRequestForRetry($arguments[0], $retryAttempt, $newInvocationId);
 
