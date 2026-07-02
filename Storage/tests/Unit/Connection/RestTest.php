@@ -1068,7 +1068,7 @@ class RestTest extends TestCase
     public function testIdempotencyTokenNotOverwrittenIfProvided()
     {
         $customToken = 'my-custom-uuid-1234';
-        
+
         $mockClient = $this->prophesize(Client::class);
         $mockClient->send(
             Argument::type(RequestInterface::class),
