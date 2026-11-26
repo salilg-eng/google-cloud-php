@@ -83,4 +83,30 @@ class SignedUrlUploaderTest extends TestCase
 
         $this->assertEquals($resumeUri, $uploader->getResumeUri());
     }
+
+    public function testResumeRejectsMismatchedOriginWithoutLeakingSignature()
+    {
+        $this->requestWrapper->send(
+            Argument::any(),
+            Argument::any()
+        )->shouldNotBeCalled();
+
+        $uploader = new SignedUrlUploader(
+            $this->requestWrapper->reveal(),
+            $this->stream,
+            'https://storage.googleapis.com/my-bucket/obj.bin?X-Goog-Signature=secret-signature'
+        );
+
+        try {
+            $uploader->resume('https://example.invalid/upload-session?upload_id=secret-session');
+            $this->fail('Expected InvalidArgumentException was not thrown.');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertSame(
+                'Resume URI origin does not match the configured upload endpoint origin '
+                    . '(https://storage.googleapis.com).',
+                $e->getMessage()
+            );
+            $this->assertStringNotContainsString('secret', $e->getMessage());
+        }
+    }
 }
