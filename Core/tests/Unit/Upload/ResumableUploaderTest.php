@@ -21,6 +21,7 @@ use Google\Cloud\Core\Exception\GoogleException;
 use Google\Cloud\Core\RequestWrapper;
 use Google\Cloud\Core\Upload\ResumableUploader;
 use GuzzleHttp\Psr7\Response;
+use GuzzleHttp\Psr7\Uri;
 use GuzzleHttp\Psr7\Utils;
 use InvalidArgumentException;
 use Psr\Http\Message\RequestInterface;
@@ -143,7 +144,7 @@ class ResumableUploaderTest extends TestCase
 
         $this->assertEquals(
             json_decode($this->successBody, true),
-            $uploader->resume('http://some-resume-uri.example.com')
+            $uploader->resume('http://www.example.com/some-resume-uri')
         );
     }
 
@@ -172,7 +173,7 @@ class ResumableUploaderTest extends TestCase
 
         $this->assertEquals(
             json_decode($this->successBody, true),
-            $uploader->resume('http://some-resume-uri.example.com')
+            $uploader->resume('http://www.example.com/some-resume-uri')
         );
     }
 
@@ -193,7 +194,7 @@ class ResumableUploaderTest extends TestCase
 
         $this->assertEquals(
             json_decode($this->successBody, true),
-            $uploader->resume('http://some-resume-uri.example.com')
+            $uploader->resume('http://www.example.com/some-resume-uri')
         );
     }
 
@@ -382,7 +383,232 @@ class ResumableUploaderTest extends TestCase
             'http://www.example.com'
         );
 
-        $uploader->resume('http://some-resume-uri.example.com');
+        $uploader->resume('http://www.example.com/some-resume-uri');
+    }
+
+    /**
+     * @dataProvider validResumeUriProvider
+     */
+    public function testResumeAllowsMatchingOrigin($configuredUri, $resumeUri)
+    {
+        $statusResponse = new Response(200, [], $this->successBody);
+
+        $this->requestWrapper->send(
+            Argument::that(function (RequestInterface $request) use ($resumeUri) {
+                return $request->getMethod() === 'PUT'
+                    && (string) $request->getUri() === (string) Utils::uriFor($resumeUri);
+            }),
+            Argument::type('array')
+        )->willReturn($statusResponse)->shouldBeCalledOnce();
+
+        $uploader = new ResumableUploader(
+            $this->requestWrapper->reveal(),
+            $this->stream,
+            $configuredUri
+        );
+
+        $this->assertSame(
+            json_decode($this->successBody, true),
+            $uploader->resume($resumeUri)
+        );
+    }
+
+    public function validResumeUriProvider()
+    {
+        return [
+            'exact match' => [
+                'https://storage.googleapis.com/upload/storage/v1/b/my-bucket/o?uploadType=resumable',
+                'https://storage.googleapis.com/upload/storage/v1/b/my-bucket/o?uploadType=resumable&upload_id=123',
+            ],
+            'case-insensitive scheme and host' => [
+                'https://storage.googleapis.com/upload/storage/v1/b/my-bucket/o?uploadType=resumable',
+                'HTTPS://STORAGE.GOOGLEAPIS.COM/upload/storage/v1/b/my-bucket/o?upload_id=123',
+            ],
+            'explicit default https port' => [
+                'https://storage.googleapis.com/upload/storage/v1/b/my-bucket/o?uploadType=resumable',
+                'https://storage.googleapis.com:443/upload/storage/v1/b/my-bucket/o?upload_id=123',
+            ],
+            'omitted default https port' => [
+                'https://storage.googleapis.com:443/upload/storage/v1/b/my-bucket/o?uploadType=resumable',
+                'https://storage.googleapis.com/upload/storage/v1/b/my-bucket/o?upload_id=123',
+            ],
+            'explicit default http port' => [
+                'http://example.com/upload',
+                'http://example.com:80/upload?upload_id=123',
+            ],
+            'custom port emulator' => [
+                'http://localhost:4443/upload/storage/v1/b/my-bucket/o?uploadType=resumable',
+                'http://localhost:4443/upload/storage/v1/b/my-bucket/o?upload_id=123',
+            ],
+            'ipv6 literal with custom port' => [
+                'http://[::1]:4443/upload/storage/v1/b/my-bucket/o?uploadType=resumable',
+                'http://[::1]:4443/upload/storage/v1/b/my-bucket/o?upload_id=123',
+            ],
+            'custom host containing https substring' => [
+                'https://https.example.com/upload/storage/v1/b/my-bucket/o?uploadType=resumable',
+                'https://https.example.com/upload/storage/v1/b/my-bucket/o?upload_id=123',
+            ],
+            'psr7 uri interface' => [
+                'https://storage.googleapis.com/upload/storage/v1/b/my-bucket/o?uploadType=resumable',
+                new Uri('https://storage.googleapis.com/upload/storage/v1/b/my-bucket/o?upload_id=123'),
+            ],
+        ];
+    }
+
+    /**
+     * @dataProvider invalidResumeUriProvider
+     */
+    public function testResumeRejectsInvalidOrMismatchedUri($configuredUri, $resumeUri)
+    {
+        $this->requestWrapper->send(
+            Argument::any(),
+            Argument::any()
+        )->shouldNotBeCalled();
+
+        $uploader = new ResumableUploader(
+            $this->requestWrapper->reveal(),
+            $this->stream,
+            $configuredUri,
+            [
+                'restOptions' => [
+                    'headers' => [
+                        'x-goog-encryption-algorithm' => 'AES256',
+                        'x-goog-encryption-key' => base64_encode(str_repeat('a', 32)),
+                        'x-goog-encryption-key-sha256' => base64_encode(hash('sha256', str_repeat('a', 32), true)),
+                    ],
+                ],
+            ]
+        );
+
+        $this->expectException(InvalidArgumentException::class);
+        $uploader->resume($resumeUri);
+    }
+
+    public function invalidResumeUriProvider()
+    {
+        $defaultEndpoint = 'https://storage.googleapis.com/upload/storage/v1/b/my-bucket/o?uploadType=resumable';
+
+        return [
+            'different host' => [
+                $defaultEndpoint,
+                'https://example.invalid/upload-session',
+            ],
+            'scheme downgrade' => [
+                $defaultEndpoint,
+                'http://storage.googleapis.com/upload-session',
+            ],
+            'scheme upgrade' => [
+                'http://localhost:4443/upload',
+                'https://localhost:4443/upload-session',
+            ],
+            'non-http scheme' => [
+                $defaultEndpoint,
+                'file://storage.googleapis.com/etc/passwd',
+            ],
+            'different port' => [
+                $defaultEndpoint,
+                'https://storage.googleapis.com:8443/upload-session',
+            ],
+            'wrong default port for https' => [
+                $defaultEndpoint,
+                'https://storage.googleapis.com:80/upload-session',
+            ],
+            'missing custom port' => [
+                'http://localhost:4443/upload',
+                'http://localhost/upload-session',
+            ],
+            'subdomain suffix spoof' => [
+                $defaultEndpoint,
+                'https://storage.googleapis.com.evil.com/upload-session',
+            ],
+            'subdomain prefix spoof' => [
+                $defaultEndpoint,
+                'https://evil.storage.googleapis.com/upload-session',
+            ],
+            'trailing dot host' => [
+                $defaultEndpoint,
+                'https://storage.googleapis.com./upload-session',
+            ],
+            'userinfo host confusion' => [
+                $defaultEndpoint,
+                'https://storage.googleapis.com@example.invalid/upload-session',
+            ],
+            'unexpected userinfo' => [
+                $defaultEndpoint,
+                'https://user:pass@storage.googleapis.com/upload-session',
+            ],
+            'backslash userinfo parser differential' => [
+                $defaultEndpoint,
+                'https://example.invalid\\@storage.googleapis.com/upload-session',
+            ],
+            'backslash in host' => [
+                $defaultEndpoint,
+                'https://storage.googleapis.com\\example.invalid/upload-session',
+            ],
+            'double scheme' => [
+                $defaultEndpoint,
+                'https://https://storage.googleapis.com/upload-session',
+            ],
+            'protocol-relative uri' => [
+                $defaultEndpoint,
+                '//storage.googleapis.com/upload-session',
+            ],
+            'relative path' => [
+                $defaultEndpoint,
+                '/upload/storage/v1/b/my-bucket/o?upload_id=123',
+            ],
+            'bare string' => [
+                $defaultEndpoint,
+                'theResumeUri',
+            ],
+            'empty string' => [
+                $defaultEndpoint,
+                '',
+            ],
+            'control characters' => [
+                $defaultEndpoint,
+                "https://storage.googleapis.com/upload\r\nX-Injected: 1",
+            ],
+            'malformed uri' => [
+                $defaultEndpoint,
+                'https://:443/upload',
+            ],
+            'null resume uri' => [
+                $defaultEndpoint,
+                null,
+            ],
+            'configured endpoint missing scheme and host' => [
+                '/relative/upload',
+                'https://storage.googleapis.com/upload-session',
+            ],
+        ];
+    }
+
+    public function testResumeDoesNotMutateResumeUriOnValidationFailure()
+    {
+        $validResumeUri = 'https://storage.googleapis.com/upload/storage/v1/b/my-bucket/o?upload_id=valid';
+        $this->requestWrapper->send(
+            Argument::that(function (RequestInterface $request) {
+                return $request->getMethod() === 'POST'
+                    && $request->getUri()->getHost() === 'storage.googleapis.com';
+            }),
+            Argument::type('array')
+        )->willReturn(new Response(200, ['Location' => $validResumeUri]))->shouldBeCalledOnce();
+
+        $uploader = new ResumableUploader(
+            $this->requestWrapper->reveal(),
+            $this->stream,
+            'https://storage.googleapis.com/upload/storage/v1/b/my-bucket/o?uploadType=resumable'
+        );
+
+        try {
+            $uploader->resume('https://example.invalid/upload-session');
+            $this->fail('Expected InvalidArgumentException was not thrown.');
+        } catch (InvalidArgumentException $e) {
+            $this->assertStringContainsString('https://storage.googleapis.com', $e->getMessage());
+        }
+
+        $this->assertSame($validResumeUri, $uploader->getResumeUri());
     }
 
     public function testThrowsExceptionWithFailedUpload()

@@ -24,8 +24,10 @@ use Google\Cloud\Core\RequestWrapper;
 use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Psr7\LimitStream;
 use GuzzleHttp\Psr7\Request;
+use GuzzleHttp\Psr7\Utils;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
+use Psr\Http\Message\UriInterface;
 
 /**
  * Resumable upload implementation.
@@ -118,12 +120,15 @@ class ResumableUploader extends AbstractUploader
      * @param string $resumeUri
      * @return array
      * @throws GoogleException
+     * @throws \InvalidArgumentException
      */
     public function resume($resumeUri)
     {
         if (!$this->data->isSeekable()) {
             throw new GoogleException('Cannot resume upload on a stream which cannot be seeked.');
         }
+
+        $this->validateResumeUri($resumeUri);
 
         $this->resumeUri = $resumeUri;
         $response = $this->getStatusResponse();
@@ -293,5 +298,53 @@ class ResumableUploader extends AbstractUploader
         }
 
         return (int) explode('-', $rangeHeader)[1] + 1;
+    }
+
+    /**
+     * Validates that the provided resume URI matches the configured upload
+     * endpoint's origin (scheme, host, port, and userinfo).
+     *
+     * @param string|UriInterface $resumeUri
+     * @return void
+     * @throws \InvalidArgumentException
+     */
+    private function validateResumeUri($resumeUri): void
+    {
+        if ((!is_string($resumeUri) && !$resumeUri instanceof UriInterface) || (string) $resumeUri === '') {
+            throw new \InvalidArgumentException('Resume URI must be a non-empty string.');
+        }
+
+        if (preg_match('/[\x00-\x1F\x7F]/', (string) $resumeUri) === 1) {
+            throw new \InvalidArgumentException('Resume URI must not contain control characters.');
+        }
+
+        $expectedUri = Utils::uriFor($this->uri);
+        $parsedResumeUri = Utils::uriFor($resumeUri);
+
+        if ($expectedUri->getScheme() === ''
+            || $expectedUri->getHost() === ''
+            || $parsedResumeUri->getScheme() === ''
+            || $parsedResumeUri->getHost() === ''
+        ) {
+            throw new \InvalidArgumentException(
+                'Resume URI must include a valid scheme and host matching the configured upload endpoint.'
+            );
+        }
+
+        if ($parsedResumeUri->getScheme() !== $expectedUri->getScheme()
+            || $parsedResumeUri->getHost() !== $expectedUri->getHost()
+            || $parsedResumeUri->getPort() !== $expectedUri->getPort()
+            || $parsedResumeUri->getUserInfo() !== $expectedUri->getUserInfo()
+        ) {
+            $expectedOrigin = $expectedUri->getScheme() . '://' . $expectedUri->getHost();
+            if ($expectedUri->getPort() !== null) {
+                $expectedOrigin .= ':' . $expectedUri->getPort();
+            }
+
+            throw new \InvalidArgumentException(sprintf(
+                'Resume URI origin does not match the configured upload endpoint origin (%s).',
+                $expectedOrigin
+            ));
+        }
     }
 }
