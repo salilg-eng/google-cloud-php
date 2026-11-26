@@ -24,8 +24,10 @@ use Google\Cloud\Core\RequestWrapper;
 use GuzzleHttp\Promise\PromiseInterface;
 use GuzzleHttp\Psr7\LimitStream;
 use GuzzleHttp\Psr7\Request;
+use GuzzleHttp\Psr7\Uri;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
+use Psr\Http\Message\UriInterface;
 
 /**
  * Resumable upload implementation.
@@ -115,9 +117,11 @@ class ResumableUploader extends AbstractUploader
     /**
      * Resumes a download using the provided URI.
      *
-     * @param string $resumeUri
+     * @param string|UriInterface $resumeUri
      * @return array
      * @throws GoogleException
+     * @throws \InvalidArgumentException When the resume URI or configured upload
+     *         endpoint is invalid or their origins do not match.
      */
     public function resume($resumeUri)
     {
@@ -125,7 +129,7 @@ class ResumableUploader extends AbstractUploader
             throw new GoogleException('Cannot resume upload on a stream which cannot be seeked.');
         }
 
-        $this->resumeUri = $resumeUri;
+        $this->resumeUri = $this->validateResumeUri($resumeUri);
         $response = $this->getStatusResponse();
 
         if ($response->getBody()->getSize() > 0) {
@@ -293,5 +297,82 @@ class ResumableUploader extends AbstractUploader
         }
 
         return (int) explode('-', $rangeHeader)[1] + 1;
+    }
+
+    /**
+     * Validates that the provided resume URI matches the configured upload
+     * endpoint's scheme, host, port, and userinfo, and returns its canonical
+     * string representation.
+     *
+     * @param string|UriInterface $resumeUri
+     * @return string
+     * @throws \InvalidArgumentException
+     */
+    private function validateResumeUri($resumeUri): string
+    {
+        $expectedUri = $this->parseEndpointUri($this->uri, 'Configured upload endpoint');
+        $parsedResumeUri = $this->parseEndpointUri($resumeUri, 'Resume URI');
+
+        if ($parsedResumeUri->getScheme() !== $expectedUri->getScheme()
+            || $parsedResumeUri->getHost() !== $expectedUri->getHost()
+            || $parsedResumeUri->getPort() !== $expectedUri->getPort()
+        ) {
+            $expectedOrigin = $expectedUri->getScheme() . '://' . $expectedUri->getHost();
+            if ($expectedUri->getPort() !== null) {
+                $expectedOrigin .= ':' . $expectedUri->getPort();
+            }
+
+            throw new \InvalidArgumentException(sprintf(
+                'Resume URI origin does not match the configured upload endpoint origin (%s).',
+                $expectedOrigin
+            ));
+        }
+
+        if ($parsedResumeUri->getUserInfo() !== $expectedUri->getUserInfo()) {
+            throw new \InvalidArgumentException(
+                'Resume URI userinfo does not match the configured upload endpoint.'
+            );
+        }
+
+        return (string) $parsedResumeUri;
+    }
+
+    /**
+     * Parses and validates an HTTP(S) URI without leaking raw URI values in
+     * exception messages.
+     *
+     * @param mixed $uri
+     * @param string $label
+     * @return Uri
+     * @throws \InvalidArgumentException
+     */
+    private function parseEndpointUri($uri, string $label): Uri
+    {
+        $uriString = (is_string($uri) || $uri instanceof UriInterface) ? (string) $uri : '';
+        if ($uriString === '') {
+            throw new \InvalidArgumentException(sprintf('%s must be a non-empty string or UriInterface.', $label));
+        }
+
+        if (preg_match('/[\x00-\x1F\x7F]/', $uriString) !== 0) {
+            throw new \InvalidArgumentException(sprintf('%s must not contain control characters.', $label));
+        }
+
+        $invalidSchemeOrHostMsg = sprintf('%s must include a valid HTTP(S) scheme and host.', $label);
+        if (preg_match('/\Ahttps?:\/\//i', $uriString) !== 1) {
+            throw new \InvalidArgumentException($invalidSchemeOrHostMsg);
+        }
+
+        try {
+            $parsedUri = new Uri($uriString);
+        } catch (\InvalidArgumentException) {
+            // Intentionally drop Guzzle's MalformedUriException to avoid leaking raw URIs/tokens via $previous.
+            throw new \InvalidArgumentException(sprintf('%s is not a valid URI.', $label));
+        }
+
+        if (!in_array($parsedUri->getScheme(), ['http', 'https'], true) || $parsedUri->getHost() === '') {
+            throw new \InvalidArgumentException($invalidSchemeOrHostMsg);
+        }
+
+        return $parsedUri;
     }
 }
