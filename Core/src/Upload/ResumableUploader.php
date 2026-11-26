@@ -120,7 +120,8 @@ class ResumableUploader extends AbstractUploader
      * @param string|UriInterface $resumeUri
      * @return array
      * @throws GoogleException
-     * @throws \InvalidArgumentException
+     * @throws \InvalidArgumentException When the resume URI or configured upload
+     *         endpoint is invalid or their origins do not match.
      */
     public function resume($resumeUri)
     {
@@ -347,11 +348,7 @@ class ResumableUploader extends AbstractUploader
      */
     private function parseEndpointUri($uri, string $label): Uri
     {
-        if (!is_string($uri) && !$uri instanceof UriInterface) {
-            throw new \InvalidArgumentException(sprintf('%s must be a non-empty string or UriInterface.', $label));
-        }
-
-        $uriString = (string) $uri;
+        $uriString = (is_string($uri) || $uri instanceof UriInterface) ? (string) $uri : '';
         if ($uriString === '') {
             throw new \InvalidArgumentException(sprintf('%s must be a non-empty string or UriInterface.', $label));
         }
@@ -360,16 +357,20 @@ class ResumableUploader extends AbstractUploader
             throw new \InvalidArgumentException(sprintf('%s must not contain control characters.', $label));
         }
 
+        $invalidSchemeOrHostMsg = sprintf('%s must include a valid HTTP(S) scheme and host.', $label);
+        if (preg_match('/\Ahttps?:\/\//i', $uriString) !== 1) {
+            throw new \InvalidArgumentException($invalidSchemeOrHostMsg);
+        }
+
         try {
             $parsedUri = new Uri($uriString);
-        } catch (\InvalidArgumentException $e) {
+        } catch (\InvalidArgumentException) {
+            // Intentionally drop Guzzle's MalformedUriException to avoid leaking raw URIs/tokens via $previous.
             throw new \InvalidArgumentException(sprintf('%s is not a valid URI.', $label));
         }
 
         if (!in_array($parsedUri->getScheme(), ['http', 'https'], true) || $parsedUri->getHost() === '') {
-            throw new \InvalidArgumentException(
-                sprintf('%s must include a valid HTTP(S) scheme and host.', $label)
-            );
+            throw new \InvalidArgumentException($invalidSchemeOrHostMsg);
         }
 
         return $parsedUri;

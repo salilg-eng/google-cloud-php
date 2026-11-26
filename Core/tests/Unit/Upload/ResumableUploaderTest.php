@@ -155,19 +155,22 @@ class ResumableUploaderTest extends TestCase
         $statusResponse = new Response(200, ['Range' => 'bytes 0-2']);
 
         $this->requestWrapper->send(
-            Argument::that(function ($request) {
-                return $request->getHeaderLine('Content-Range') === 'bytes */4';
+            Argument::that(function (RequestInterface $request) {
+                return $request->getMethod() === 'PUT'
+                    && (string) $request->getUri() === 'http://www.example.com/some-resume-uri'
+                    && $request->getHeaderLine('Content-Range') === 'bytes */4';
             }),
             Argument::type('array')
-        )->willReturn($statusResponse);
+        )->willReturn($statusResponse)->shouldBeCalledOnce();
 
         $this->requestWrapper->send(
             Argument::that(function (RequestInterface $request) {
                 return $request->getMethod() === 'PUT'
-                    && (string) $request->getUri() === 'http://www.example.com/some-resume-uri';
+                    && (string) $request->getUri() === 'http://www.example.com/some-resume-uri'
+                    && $request->getHeaderLine('Content-Range') === 'bytes 3-3/4';
             }),
             Argument::type('array')
-        )->willReturn($response);
+        )->willReturn($response)->shouldBeCalledOnce();
 
         $uploader = new ResumableUploader(
             $this->requestWrapper->reveal(),
@@ -524,7 +527,7 @@ class ResumableUploaderTest extends TestCase
             $this->fail('Expected InvalidArgumentException was not thrown.');
         } catch (InvalidArgumentException $e) {
             $this->assertSame($expectedMessage, $e->getMessage());
-            $this->assertStringNotContainsString('secret', $e->getMessage());
+            $this->assertNull($e->getPrevious());
         }
     }
 

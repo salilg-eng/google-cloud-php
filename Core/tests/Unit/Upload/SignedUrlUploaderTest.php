@@ -106,7 +106,7 @@ class SignedUrlUploaderTest extends TestCase
                     . '(https://storage.googleapis.com).',
                 $e->getMessage()
             );
-            $this->assertStringNotContainsString('secret', $e->getMessage());
+            $this->assertNull($e->getPrevious());
         }
     }
 }
